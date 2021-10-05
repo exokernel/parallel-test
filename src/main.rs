@@ -6,7 +6,7 @@ use std::error::Error;
 use structopt::StructOpt;
 use log::{debug};
 use std::fs;
-use std::path::{Path};
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, StructOpt)]
 #[structopt(name = "parallel-test", about = "Do some things in parallel")]
@@ -99,6 +99,27 @@ fn get_files(dir: &Path, extensions: &Vec<&str>, files: &mut Vec<String>) -> io:
     Ok(())
 }
 
+/*
+fn get_files2<F>(dir: &Path, f: F, files: &mut Vec<String>)
+    -> io::Result<()> where
+    F: Fn(&mut Vec<String>, PathBuf) {
+
+    if dir.is_dir() {
+        for e in fs::read_dir(dir)? {
+            let entry = e?;
+            let path = entry.path();
+            if path.is_dir() {
+                debug!("D {:?}", path);
+                get_files2(&path, f, files).unwrap();
+            } else {
+                f(files, path);
+            }
+        }
+    }
+    Ok(())
+}
+*/
+
 /// Do the thing forever unless interrupted.
 /// Read all files in the input path and feed them in chunks to an invocation of Gnu Parallel
 /// Wait for each chunk to complete before processing the next chunk
@@ -121,12 +142,31 @@ fn run(chunk_size: usize,
     //let extensions = vec!["mp4", "flv"];
     let extensions = vec![];
 
+    /*
+    let f: Fn() = match extensions.is_empty() {
+        true => |file_list: &mut Vec<String>, filepath: PathBuf| -> () {
+            debug!("f {:?}", filepath);
+            file_list.push(filepath.display().to_string());
+        },
+        default => |file_list: &mut Vec<String>, filepath: PathBuf| -> () {
+            if filepath.extension().is_some() &&
+               extensions.contains(&filepath.extension().unwrap()
+                                            .to_str().unwrap()) {
+                debug!("f {:?}", filepath);
+                file_list.push(filepath.display().to_string());
+            }
+
+        }
+    };
+    */
+
     // Do forever
     loop {
 
         // 1. Get all the files in our input path
         let mut files: Vec<String> = vec![];
         get_files(Path::new(&input_path), &extensions, &mut files).unwrap();
+        //get_files2(Path::new(&input_path), f, &mut files).unwrap();
         files.sort();
 
         // 2. process chunks of input in parallel
