@@ -23,6 +23,12 @@ struct Opt {
     #[structopt(long)]
     daemon: bool,
 
+    /// List of extensions delimited by commas. Only files ending in these extensions
+    /// will be processed. E.g. -e "mp4,flv"
+    /// If this option is not provided then all files under the input_path will be processed
+    #[structopt(short,long)]
+    extensions: Option<String>,
+
     /// Number of things to try to do in parallel at one time.
     /// This is the number inputs that will be fed to a single invocation of
     /// Gnu Parallel. The actual number of parallel jobs per chunk is limited
@@ -99,11 +105,10 @@ fn get_files(dir: &Path, extensions: &Vec<&str>, files: &mut Vec<String>) -> io:
     Ok(())
 }
 
-/*
-fn get_files2<F>(dir: &Path, f: F, files: &mut Vec<String>)
-    -> io::Result<()> where
-    F: Fn(&mut Vec<String>, PathBuf) {
+type BoxedCallback = Box<dyn Fn(&mut Vec<String>, PathBuf)>;
 
+fn get_files2(dir: &Path, f: &BoxedCallback, files: &mut Vec<String>)
+   -> io::Result<()> {
     if dir.is_dir() {
         for e in fs::read_dir(dir)? {
             let entry = e?;
@@ -118,7 +123,6 @@ fn get_files2<F>(dir: &Path, f: F, files: &mut Vec<String>)
     }
     Ok(())
 }
-*/
 
 /// Do the thing forever unless interrupted.
 /// Read all files in the input path and feed them in chunks to an invocation of Gnu Parallel
@@ -128,6 +132,7 @@ fn run(chunk_size: usize,
        job_slots: String,
        sleep_time: f64,
        daemon: bool,
+       extensions: &Vec<&str>,
        input_path: String,
        script: Option<String>)
    -> Result<(),Box<dyn Error>> {
@@ -139,34 +144,28 @@ fn run(chunk_size: usize,
         command = script.unwrap();
     }
 
-    //let extensions = vec!["mp4", "flv"];
-    let extensions = vec![];
-
-    /*
-    let f: Fn() = match extensions.is_empty() {
-        true => |file_list: &mut Vec<String>, filepath: PathBuf| -> () {
+    let f: BoxedCallback = match extensions.is_empty() {
+        true => Box::new(|file_list: &mut Vec<String>, filepath: PathBuf| {
             debug!("f {:?}", filepath);
             file_list.push(filepath.display().to_string());
-        },
-        default => |file_list: &mut Vec<String>, filepath: PathBuf| -> () {
+        }),
+        false => Box::new(|file_list: &mut Vec<String>, filepath: PathBuf| {
             if filepath.extension().is_some() &&
                extensions.contains(&filepath.extension().unwrap()
                                             .to_str().unwrap()) {
                 debug!("f {:?}", filepath);
                 file_list.push(filepath.display().to_string());
             }
-
-        }
+        })
     };
-    */
 
     // Do forever
     loop {
 
         // 1. Get all the files in our input path
         let mut files: Vec<String> = vec![];
-        get_files(Path::new(&input_path), &extensions, &mut files).unwrap();
-        //get_files2(Path::new(&input_path), f, &mut files).unwrap();
+        //get_files(Path::new(&input_path), &extensions, &mut files).unwrap();
+        get_files2(Path::new(&input_path), &f, &mut files).unwrap();
         files.sort();
 
         // 2. process chunks of input in parallel
@@ -221,6 +220,15 @@ fn main() {
         job_slots = opt.job_slots.unwrap().to_string();
     }
 
+    let ext_string: String;
+    let ext_vec: Vec<&str>;
+    if opt.extensions.is_some() {
+        ext_string = opt.extensions.clone().unwrap();
+        ext_vec = ext_string.as_str().split(",").collect();
+    } else {
+        ext_vec = vec![];
+    }
+
     env_logger::init();
 
     debug!("{:?}", opt);
@@ -229,6 +237,7 @@ fn main() {
     if let Err(e) = run(opt.chunk_size,
                         job_slots, 0 as f64,
                         opt.daemon,
+                        &ext_vec,
                         opt.input_path,
                         opt.script) {
         eprintln!("Oh noes! {}", e);
